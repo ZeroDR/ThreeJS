@@ -69,6 +69,15 @@ export default class SceneView{
       })
     }
 
+    setBackGroundImage(path) {
+      const _this = this;
+      // 给场景添加背景
+      let textureBg = new TextureLoader();
+      textureBg.load(path,(texture) => {
+        _this.scene.background = texture;
+      });
+    }
+
     loadMapData() {
       let _this = this;
 

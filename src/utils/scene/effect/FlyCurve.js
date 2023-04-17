@@ -54,7 +54,7 @@ export function createFlyCurve(points, closed) {
 	var flyLine = initFlyLine( curve, {
 		speed: 0.4,
 		color: color,
-		number: 3, //同时跑动的流光数量
+		number: 10, //同时跑动的流光数量
 		length: 0.2, //流光线条长度
 		size: 3 //粗细
 	}, 5000 );
