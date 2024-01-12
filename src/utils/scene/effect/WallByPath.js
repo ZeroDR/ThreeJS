@@ -91,6 +91,64 @@ export const creatWallByPath = ({
   return new THREE.Mesh(geometry, meshMat);
 };
 
+// 通过GeoJSON创建立方体
+export const createExtrudeByGeoJson = (geoJson,height=1)=>{
+  let mapExtrude = new THREE.Object3D();
+  // 拉伸设置
+  const extrudeSettings = {
+    depth: 0.5,
+    bevelEnabled: true,
+    bevelSegments: 1,
+    bevelThickness: 0.1,
+  };
+  geoJson.features.forEach(elem => {
+    // 定一个省份3D对象
+    const province = new THREE.Object3D();
+    // 每个的 坐标 数组
+    const coordinates = elem.geometry.coordinates;
+    // 循环坐标数组
+    coordinates.forEach(multiPolygon => {
+
+      multiPolygon.forEach(polygon => {
+        const shape = new THREE.Shape();
+
+        for (let i = 0; i < polygon.length; i++) {
+          const [x, y] = polygon[i];
+          if (i === 0) {
+            shape.moveTo(x-113.59893798828125, y-34.648846130371094,1);
+          }
+          shape.lineTo(x-113.59893798828125, y-34.648846130371094,1);
+        }
+
+        const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+        const material = new THREE.MeshBasicMaterial({
+          color: '#02A1E2',
+          transparent: true,
+          opacity: 0.6
+        });
+        const material1 = new THREE.MeshBasicMaterial({
+          color: '#3480C4',
+          transparent: true,
+          opacity: 0.5
+        });
+        const mesh = new THREE.Mesh(geometry, [material, material1]);
+        province.add(mesh);
+      })
+    })
+
+    // 将geo的属性放到省份模型中
+    province.properties = elem.properties;
+    if (elem.properties.contorid) {
+      const [x, y] = elem.properties.contorid;
+      province.properties._centroid = [x-113.59893798828125, y-34.648846130371094];
+    }
+    mapExtrude.add(province);
+  })
+  mapExtrude.rotateX(-Math.PI/2);
+  mapExtrude.scale.set(5.0,5.0,4.0);
+  return mapExtrude;
+}
+
 // 通过GeoJson创建墙
 export const creatWallByGeojson = (radius, geoJson, height = 1) => {
   // 解析路径数据
@@ -112,6 +170,30 @@ export const creatWallByGeojson = (radius, geoJson, height = 1) => {
     const wallMesh = creatWallByPath({ path, material, expand: false });
     earthWallGroup.add(wallMesh);
   });
+  return earthWallGroup;
+}
+
+// 通过GeoJson创建墙
+export const creatWallByGeojsonLatlng = (geoJson) => {
+  // 解析路径数据
+  const positionArrays = parseGeoJson(geoJson);
+  // 构建透明墙体材质
+  const material = createFlowWallMat({});
+  const earthWallGroup = new THREE.Group();
+  positionArrays.forEach((item) => {
+    const path = item.reduce((arr, [lng, lat]) => {
+      return arr.concat([
+        [
+          [lng-113.59893798828125,lat-34.648846130371094, 0],
+          [lng-113.59893798828125, lat-34.648846130371094, 1],
+        ],
+      ]);
+    }, []);
+    const wallMesh = creatWallByPath({ path, material, expand: false });
+    earthWallGroup.add(wallMesh);
+  });
+  earthWallGroup.rotation.x = -Math.PI / 2;
+  earthWallGroup.scale.set(5.0,5.0,4.0)
   return earthWallGroup;
 }
 
@@ -183,6 +265,14 @@ export const createOpacityWallMat = ({
  * params bgUrl flowUrl
  * **/
 export const createFlowWallMat = ({ bgUrl, flowUrl }) => {
+  const bgTexture = new THREE.TextureLoader().load(
+    bgUrl || "./assets/images/opacityWall.png"
+  );
+  const flowTexture = new THREE.TextureLoader().load(
+    flowUrl ||
+      "https://model.3dmomoda.com/models/da5e99c0be934db7a42208d5d466fd33/0/gltf/F3E2E977BDB335778301D9A1FA4A4415.png"
+    // "https://model.3dmomoda.com/models/47007127aaf1489fb54fa816a15551cd/0/gltf/116802027AC38C3EFC940622BC1632BA.jpg"
+  );
   // 顶点着色器
   const vertexShader = `
       varying vec2 vUv;
@@ -208,14 +298,6 @@ export const createFlowWallMat = ({ bgUrl, flowUrl }) => {
           gl_FragColor = colorb + colorb * colora;
       }
   `;
-  const bgTexture = new THREE.TextureLoader().load(
-    bgUrl || "./assets/images/opacityWall.png"
-  );
-  const flowTexture = new THREE.TextureLoader().load(
-    flowUrl ||
-      "https://model.3dmomoda.com/models/da5e99c0be934db7a42208d5d466fd33/0/gltf/F3E2E977BDB335778301D9A1FA4A4415.png"
-    // "https://model.3dmomoda.com/models/47007127aaf1489fb54fa816a15551cd/0/gltf/116802027AC38C3EFC940622BC1632BA.jpg"
-  );
   // 允许平铺
   flowTexture.wrapS = THREE.RepeatWrapping;
   return new THREE.ShaderMaterial({

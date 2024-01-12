@@ -16,44 +16,158 @@ import useDraw from '@/utils/useDraw'
 
 import SceneView from '@/utils/scene/SceneView.js'
 
-import {Scene,PerspectiveCamera,WebGLRenderer,Color,AxesHelper,PlaneGeometry,MeshBasicMaterial,TextureLoader,Mesh,DoubleSide,BoxGeometry, SphereGeometry,Clock,Vector3,GridHelper,FileLoader} from 'three'
+import * as THREE from 'three'
 
 import {OrbitControls} from '@/utils/scene/OrbitControls.js'
+import {getQuadraticBezierPoints} from '@/utils/scene/tools/UtilsTools.js'
 
-import {creatWallByPath,createOpacityWallMat,createFlowWallMat,creatWallByGeojson} from '@/utils/scene/effect/WallByPath.js'
+import {creatWallByPath,createOpacityWallMat,createFlowWallMat,creatWallByGeojson,creatWallByGeojsonLatlng,createExtrudeByGeoJson} from '@/utils/scene/effect/WallByPath.js'
 import {creartStarPoints,renderStar} from '@/utils/scene/effect/StarEffect.js'
 import {createSpreda,renderSpread} from '@/utils/scene/effect/Spread.js'
 
 import {timerFlyCurve,createFlyCurve} from '@/utils/scene/effect/FlyCurve.js'
 
+import {Water} from '@/utils/scene/water/Water.js'
+import {Sky} from '@/utils/scene/water/Sky.js'
+
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+
+import {glowUtil} from '@/utils/scene/effect/createGlow.js'
+
+let centerXY = [113.59893798828125, 34.648846130371094]
+
 
 const threeRef=ref();
-const scene=new Scene();
-const renderer=new WebGLRenderer({antialias:true});
-const camera=new PerspectiveCamera(45,window.innerWidth/window.innerHeight);
-let wallMesh;
-let wallMat;
-let clock = new Clock();
+const scene=new THREE.Scene();
+const renderer=new THREE.WebGLRenderer({antialias:true});
+const camera=new THREE.PerspectiveCamera(45,window.innerWidth/window.innerHeight);
+let wallMesh,wallMat,water,sun;
+let clock = new THREE.Clock();
+
+let city = undefined;
+
+// 创建辉光变量
+let composer = null;
+let outlinePass = null;
+let bloomLayer = null;
+let bloomComposer = null;
+let darkMaterial = null;
+let hgMaterials = {}
+let bloomIgnore = [];
+
+// 创建辉光图层
+const createGlowPass = () => {
+  bloomLayer = glowUtil.createLayer(1);
+  // 辉光层默认样式
+  darkMaterial = new THREE.MeshBasicMaterial({ color: 'black' })// 跟辉光光晕有关的变量
+  createSawtooth();// 抗锯齿
+}
+
+// 抗锯齿，添加辉光层效果
+const createSawtooth = () => {
+  var renderPass = new RenderPass(scene, camera)
+  // 抗锯齿设置
+  var effectFXAA = new ShaderPass(scene, camera)
+  // var effectFXAA = new ShaderPass(FXAAShader)
+  // effectFXAA.uniforms['resolution'].value.set(
+  //   0.6 / window.innerWidth,
+  //   0.6 / window.innerHeight
+  // ) // 渲染区域Canvas画布宽高度  不一定是全屏，也可以是区域值
+  // effectFXAA.renderToScreen = true
+  // 我们封装好的 createUnrealBloomPass 函数，用来创建BloomPass（辉光效果）
+  const bloomPass = glowUtil.createUnrealBloomPass()
+  bloomComposer = new EffectComposer(renderer)
+  bloomComposer.renderToScreen = false // 不渲染到屏幕上
+  bloomComposer.addPass(renderPass)
+  bloomComposer.addPass(bloomPass)// 添加光晕效果
+  // bloomComposer.addPass(effectFXAA)// 去掉锯齿
+
+  // 创建自定义的着色器Pass，详细见下
+  const shaderPass = glowUtil.createShaderPass(bloomComposer)
+  composer = new EffectComposer(renderer)
+  composer.addPass(renderPass)
+
+  outlinePass = new OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera)
+  outlinePass.edgeStrength = 5 // 包围线浓度
+  outlinePass.edgeGlow = 0.5 // 边缘线范围
+  outlinePass.edgeThickness = 2// 边缘线浓度
+  outlinePass.pulsePeriod = 2// 包围线闪烁评率
+  outlinePass.visibleEdgeColor.set('#ffffff') // 包围线颜色
+  outlinePass.hiddenEdgeColor.set('#190a05')// 被遮挡的边界线颜色
+  composer.addPass(outlinePass)
+  composer.addPass(shaderPass)
+  //composer.addPass(effectFXAA)
+}
+  
+// 隐藏不需要辉光的物体
+const darkenNonBloomed = (obj) => {
+  if (obj instanceof THREE.Scene) { // 此处忽略Scene，否则场景背景会被影响
+    hgMaterials.scene = obj.background
+    obj.background = null
+    return;
+  }
+  if (
+    obj instanceof THREE.Sprite || // 此处忽略Sprite
+    bloomIgnore.includes(obj.type) || obj instanceof THREE.Line ||
+    (obj.isMesh && bloomLayer.test(obj.layers) === false) // 判断与辉光是否同层
+  ) {
+    hgMaterials[obj.uuid] = obj.material
+    obj.material = darkMaterial
+  }
+}
+
+// 还原非辉光体
+const restoreMaterial = (obj) => {
+  if (obj instanceof THREE.Scene) {
+    obj.background = hgMaterials.scene
+    delete hgMaterials.scene
+    return;
+  }
+  if (hgMaterials[obj.uuid]) {
+    obj.material = hgMaterials[obj.uuid]
+    delete hgMaterials[obj.uuid]
+  }
+}
 
 const loadScene = () => {
   // 坐标辅助
-  const axes=new AxesHelper(20);
+  const axes=new THREE.AxesHelper(20);
   scene.add(axes)
 
-  renderer.setClearColor(new Color(0x000000))
+  renderer.setClearColor(new THREE.Color(0x000000))
   renderer.setSize(window.innerWidth,window.innerHeight);
+  renderer.setPixelRatio( window.devicePixelRatio );
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
-  let gridHelper = new GridHelper( 100, 100, 0x2C2C2C, 0x888888 );
-  gridHelper.position.y = -1;
+  let gridHelper = new THREE.GridHelper( 100, 100, 0x2C2C2C, 0x888888 );
+  // gridHelper.position.y = -1;
   scene.add(gridHelper);
 
+  // 环境光
+  const light = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(light);
 
-  // const planeGeometry=new PlaneGeometry(300,200);
-  // const planeBasicMaterial=new MeshBasicMaterial({
+  let bgeometry = new THREE.BoxGeometry(4,4,4);
+  let bmaterial  = new THREE.MeshPhongMaterial({ 
+      color: 0xff5500,
+      side:0
+  });
+  let bmesh = new THREE.Mesh(bgeometry,bmaterial);
+  bmesh.castShadow = true
+  bmesh.receiveShadow = true
+  bmesh.position.y = 0;
+  bmesh.layers.enable(1);
+  scene.add(bmesh)
+
+  // const planeGeometry=new THREE.PlaneGeometry(300,200);
+  // const planeBasicMaterial=new THREE.MeshBasicMaterial({
   //   color:0xcccccc,
-  //   side: DoubleSide,
+  //   side: THREE.DoubleSide,
   // });
-  // const plane=new Mesh(planeGeometry,planeBasicMaterial)
+  // const plane=new THREE.Mesh(planeGeometry,planeBasicMaterial)
   // plane.rotation.x=-0.5*Math.PI
   // plane.position.x=30;
   // plane.position.y=0;
@@ -61,7 +175,7 @@ const loadScene = () => {
   // scene.add(plane);
 
   // // 给场景添加背景
-  // let textureBg = new TextureLoader();
+  // let textureBg = new THREE.TextureLoader();
   // textureBg.load('./assets/images/bg.jpg',(texture) => {
   //   scene.background = texture;
   // });
@@ -87,40 +201,119 @@ const loadScene = () => {
   // });
 
   // scene.add(wallMesh);
-  // scene.add(wallLine);
+  // // scene.add(wallLine);
 
-  // // 创建星空
-  // points = creartStarPoints();
-  // scene.add(points);
+  // // // 创建星空
+  // // points = creartStarPoints();
+  // // scene.add(points);
 
-  // // 创建扩散效果
-  // const spreadEffect = createSpreda();
-  // scene.add(spreadEffect);
+  // 创建扩散效果
+  const spreadEffect = createSpreda();
+  spreadEffect.position.set(0,10,0);
+  scene.add(spreadEffect);
 
-  // // 创建曲线
-  // let p1 = new Vector3(0, 0, 0);
-  // let p2 = new Vector3(50, 20, 0);
-  // let p3 = new Vector3(100, 0, 0);
-  // let curveLine = createFlyCurve([p1,p2,p3],false);
-  // scene.add(curveLine);
+  // 创建曲线
+  let v1 = new THREE.Vector3(0,0,0);
+  let v2 = new THREE.Vector3(3,3,0);
+  let v3 = new THREE.Vector3(6,0,0);
+  const pts = getQuadraticBezierPoints(v1,v2,v3);
+  let curveLine = createFlyCurve(pts,false);
+  scene.add(curveLine);
+
+  let lineGeometry = new THREE.BufferGeometry();
+  lineGeometry.setFromPoints(pts);
+  let lineMaterial = new THREE.LineBasicMaterial({
+    color: 0xff0000,
+  });
+  let lineMesh = new THREE.Line(lineGeometry,lineMaterial);
+  scene.add(lineMesh);
 
   // 加载json文件
-  let loader = new FileLoader();
-  loader.load('./data/XinMi.json', function (data) {
+  let loader = new THREE.FileLoader();
+  loader.load('./data/410000.json', function (data) {
     let jsonData = JSON.parse(data);
-    const city = creatWallByGeojson(90,jsonData,1);
-    city && (scene.add(city),camera.lookAt(city));
+    city = creatWallByGeojsonLatlng(jsonData);
+    // const city = creatWallByGeojson(90,jsonData,1);
+    // city && (scene.add(city));  //,camera.lookAt(city)
+    console.log(city);
   });
 
+  loader.load('./data/410000_0.json', function (data) {
+    let jsonData = JSON.parse(data);
+    const cityModel = createExtrudeByGeoJson(jsonData);
+    // cityModel && (scene.add(cityModel));
+  });
 
-  camera.position.x=-30;
-  camera.position.y=40;
-  camera.position.z=200;
-  camera.lookAt(0,0,0)
+  // // 加载水效果
+  sun = new THREE.Vector3();
+  // const waterGeometry = new THREE.PlaneGeometry( 10000, 10000 );
+  // water = new Water(
+  //   waterGeometry,
+  //   {
+  //     textureWidth: 512,
+  //     textureHeight: 512,
+  //     waterNormals: new THREE.TextureLoader().load('./assets/images/waternormals.jpg', function (texture) {
+  //       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  //     }),
+  //     sunDirection: new THREE.Vector3(),
+  //     sunColor: 0xffffff,
+  //     waterColor: 0x001e0f,
+  //     distortionScale: 3.7,
+  //     fog: scene.fog !== undefined
+  //   }
+  // );
+  // water.rotation.x = - Math.PI / 2;
+  // scene.add(water);
+
+  // const sky = new Sky();
+  // sky.scale.setScalar( 10000 );
+  // scene.add(sky);
+  // const skyUniforms = sky.material.uniforms;
+  // skyUniforms['turbidity'].value = 10;
+  // skyUniforms['rayleigh'].value = 2;
+  // skyUniforms['mieCoefficient'].value = 0.005;
+  // skyUniforms['mieDirectionalG'].value = 0.8;
+
+  // const parameters = {
+  //   elevation: 1,
+  //   azimuth: 180
+  // };
+
+  // const pmremGenerator = new THREE.PMREMGenerator( renderer );
+  // let renderTarget;
+
+  // function updateSun() {
+  //   const phi = THREE.MathUtils.degToRad( 90 - parameters.elevation );
+  //   const theta = THREE.MathUtils.degToRad( parameters.azimuth );
+
+  //   sun.setFromSphericalCoords(1, phi, theta );
+
+  //   sky.material.uniforms['sunPosition'].value.copy(sun);
+  //   water.material.uniforms['sunDirection'].value.copy(sun).normalize();
+
+  //   if ( renderTarget !== undefined ) renderTarget.dispose();
+
+  //   renderTarget = pmremGenerator.fromScene(sky);
+
+  //   scene.environment = renderTarget.texture;
+  // }
+
+  // updateSun();
+
+  createGlowPass();
+
+  camera.position.x=centerXY[0];
+  camera.position.y=centerXY[1];
+  camera.position.z=80;
+  camera.lookAt(...centerXY,80)
   threeRef.value.appendChild(renderer.domElement)
   renderer.render(scene,camera);
 
   const controls = new OrbitControls(camera,renderer.domElement);
+  // controls.maxPolarAngle = Math.PI * 0.495;
+  // controls.target.set( 0, 10, 0 );
+  // controls.minDistance = 40.0;
+  // controls.maxDistance = 500.0;
   //监听鼠标事件，触发渲染函数，更新canvas画布渲染效果
   // controls.addEventListener('change', render);
 
@@ -128,26 +321,43 @@ const loadScene = () => {
 }
 
 const render = () => {
+  scene.traverse(darkenNonBloomed) // 隐藏不需要辉光的物体
+  bloomComposer.render()
+  scene.traverse(restoreMaterial) // 还原
+
   renderer.render(scene, camera); //执行渲染操作
   // renderStar();// 星空效果
   // 透明墙效果
   // wallMesh.material.uniforms.time.value += clock.getDelta() * wallMesh.material.uniforms.speed.value;
-  // 流动墙效果
+  // // 流动墙效果
   // wallMat.uniforms.time.value += 0.01;
 
   // if(camera.position.z < 230){
   //   camera.position.z += 0.1;
   // }
-  // // renderSpread();
+  // if(city){
+  //   let childs = city.children;
+  //   childs.length && childs.forEach((mesh,index)=>{
+  //     mesh.material.uniforms.time.value += 0.0005*index;
+  //   })
+  //   city.rotation.z += 0.01;
+  // }
+  renderSpread();
+  // 水面效果
+  // water.material.uniforms[ 'time' ].value += 1.0 / 60.0;
   requestAnimationFrame(render);
+
+  if (composer) {
+    composer.render();
+  }
 }
 
 onMounted(() => {
   // console.log(1111111);
-  const scene = new SceneView();
-  scene.init('labelInfo');
+  // const scene = new SceneView();
+  // scene.init('labelInfo');
   // scene.setBackGroundImage('./assets/images/bg.jpg');
-  // loadScene();
+  loadScene();
 })
 
 
