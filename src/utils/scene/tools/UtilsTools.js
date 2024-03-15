@@ -110,6 +110,13 @@ export const getArcCurvePoints = (v0,v2)=>{
   return arc.getPoints(50); 
 }
 
+// 创建圆弧线
+export const getCurvePoints = (v0,v2,radius)=>{
+  let arc = new THREE.ArcCurve(v0, v2, radius, 0, 2*Math.PI)
+
+  return arc.getPoints(200);
+}
+
 // 计算v1,v2 的中点
 const getVCenter = (v1, v2) => {
     let v = v1.add(v2);

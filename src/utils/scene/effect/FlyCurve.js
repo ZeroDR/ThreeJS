@@ -52,7 +52,7 @@ export function createFlyCurve(points, closed) {
 		speed: 0.1,
 		color: color,
 		number: 20, //同时跑动的流光数量
-		length: 0.8, //流光线条长度
+		length: 2.0, //流光线条长度
 		size: 3 //粗细
 	}, 5000 );
 	return flyLine;

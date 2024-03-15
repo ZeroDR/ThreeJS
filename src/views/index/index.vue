@@ -19,7 +19,7 @@ import SceneView from '@/utils/scene/SceneView.js'
 import * as THREE from 'three'
 
 import {OrbitControls} from '@/utils/scene/OrbitControls.js'
-import {getQuadraticBezierPoints} from '@/utils/scene/tools/UtilsTools.js'
+import {getQuadraticBezierPoints,getCurvePoints} from '@/utils/scene/tools/UtilsTools.js'
 
 import {creatWallByPath,createOpacityWallMat,createFlowWallMat,creatWallByGeojson,creatWallByGeojsonLatlng,createExtrudeByGeoJson} from '@/utils/scene/effect/WallByPath.js'
 import {creartStarPoints,renderStar} from '@/utils/scene/effect/StarEffect.js'
@@ -37,7 +37,8 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 
 import {glowUtil} from '@/utils/scene/effect/createGlow.js'
 
-let centerXY = [113.59893798828125, 34.648846130371094]
+let centerXY = [113.59893798828125, 34.648846130371094];
+let curvePoints = getCurvePoints(0,0,10);
 
 
 const threeRef=ref();
@@ -71,13 +72,6 @@ const createSawtooth = () => {
   var renderPass = new RenderPass(scene, camera)
   // 抗锯齿设置
   var effectFXAA = new ShaderPass(scene, camera)
-  // var effectFXAA = new ShaderPass(FXAAShader)
-  // effectFXAA.uniforms['resolution'].value.set(
-  //   0.6 / window.innerWidth,
-  //   0.6 / window.innerHeight
-  // ) // 渲染区域Canvas画布宽高度  不一定是全屏，也可以是区域值
-  // effectFXAA.renderToScreen = true
-  // 我们封装好的 createUnrealBloomPass 函数，用来创建BloomPass（辉光效果）
   const bloomPass = glowUtil.createUnrealBloomPass()
   bloomComposer = new EffectComposer(renderer)
   bloomComposer.renderToScreen = false // 不渲染到屏幕上
@@ -135,7 +129,7 @@ const restoreMaterial = (obj) => {
 const loadScene = () => {
   // 坐标辅助
   const axes=new THREE.AxesHelper(20);
-  scene.add(axes)
+  scene.add(axes);
 
   renderer.setClearColor(new THREE.Color(0x000000))
   renderer.setSize(window.innerWidth,window.innerHeight);
@@ -150,7 +144,7 @@ const loadScene = () => {
   const light = new THREE.AmbientLight(0xffffff, 0.6);
   scene.add(light);
 
-  let bgeometry = new THREE.BoxGeometry(4,4,4);
+  let bgeometry = new THREE.BoxGeometry(0.2,10,0.2);
   let bmaterial  = new THREE.MeshPhongMaterial({ 
       color: 0xff5500,
       side:0
@@ -158,7 +152,7 @@ const loadScene = () => {
   let bmesh = new THREE.Mesh(bgeometry,bmaterial);
   bmesh.castShadow = true
   bmesh.receiveShadow = true
-  bmesh.position.y = 0;
+  bmesh.position.y = 10;
   bmesh.layers.enable(1);
   scene.add(bmesh)
 
@@ -207,10 +201,11 @@ const loadScene = () => {
   // // points = creartStarPoints();
   // // scene.add(points);
 
-  // 创建扩散效果
-  const spreadEffect = createSpreda();
-  spreadEffect.position.set(0,10,0);
-  scene.add(spreadEffect);
+  // // 创建扩散效果
+  // const spreadEffect = createSpreda();
+  // spreadEffect.position.set(0,10,0);
+  // spreadEffect.layers.enable(1);
+  // scene.add(spreadEffect);
 
   // 创建曲线
   let v1 = new THREE.Vector3(0,0,0);
@@ -232,15 +227,17 @@ const loadScene = () => {
   let loader = new THREE.FileLoader();
   loader.load('./data/410000.json', function (data) {
     let jsonData = JSON.parse(data);
-    city = creatWallByGeojsonLatlng(jsonData);
-    // const city = creatWallByGeojson(90,jsonData,1);
+    // city = creatWallByGeojsonLatlng(jsonData);
+    const city = creatWallByGeojson(90,jsonData,1);
+    // city.layers.enable(1);
     // city && (scene.add(city));  //,camera.lookAt(city)
-    console.log(city);
+    // console.log(city);
   });
 
   loader.load('./data/410000_0.json', function (data) {
     let jsonData = JSON.parse(data);
     const cityModel = createExtrudeByGeoJson(jsonData);
+    // cityModel.layers.enable(1);
     // cityModel && (scene.add(cityModel));
   });
 
@@ -304,8 +301,8 @@ const loadScene = () => {
 
   camera.position.x=centerXY[0];
   camera.position.y=centerXY[1];
-  camera.position.z=80;
-  camera.lookAt(...centerXY,80)
+  camera.position.z=10;
+  // camera.lookAt(...centerXY,80)
   threeRef.value.appendChild(renderer.domElement)
   renderer.render(scene,camera);
 
@@ -320,10 +317,15 @@ const loadScene = () => {
   render();
 }
 
+let index = 0;
+
 const render = () => {
   scene.traverse(darkenNonBloomed) // 隐藏不需要辉光的物体
   bloomComposer.render()
   scene.traverse(restoreMaterial) // 还原
+  index === curvePoints.length-1 && (index = 0)
+  index++;
+  // camera.position.set(curvePoints[index].x,10,curvePoints[index].y);
 
   renderer.render(scene, camera); //执行渲染操作
   // renderStar();// 星空效果
@@ -342,7 +344,10 @@ const render = () => {
   //   })
   //   city.rotation.z += 0.01;
   // }
-  renderSpread();
+
+  // // 扩散效果
+  // renderSpread();
+
   // 水面效果
   // water.material.uniforms[ 'time' ].value += 1.0 / 60.0;
   requestAnimationFrame(render);
@@ -353,7 +358,6 @@ const render = () => {
 }
 
 onMounted(() => {
-  // console.log(1111111);
   // const scene = new SceneView();
   // scene.init('labelInfo');
   // scene.setBackGroundImage('./assets/images/bg.jpg');
