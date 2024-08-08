@@ -77,7 +77,7 @@ const createSawtooth = () => {
   bloomComposer.renderToScreen = false // 不渲染到屏幕上
   bloomComposer.addPass(renderPass)
   bloomComposer.addPass(bloomPass)// 添加光晕效果
-  // bloomComposer.addPass(effectFXAA)// 去掉锯齿
+  // bloomComposer.addPass(effectFXAA)// 去掉锯齿 提交
 
   // 创建自定义的着色器Pass，详细见下
   const shaderPass = glowUtil.createShaderPass(bloomComposer)
